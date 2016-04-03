@@ -1,22 +1,37 @@
-//  PIC32 Server - Microchip BSD stack socket API
+// PIC32 Server - Microchip BSD stack socket API
 // MPLAB X C32 Compiler     PIC32MX795F512L
-//      Microchip DM320004 Ethernet Starter Board
+// Microchip DM320004 Ethernet Starter Board
+/*
+    Author: Harish Boggarapu
+    Title: Linear Block Code Error Correction
 
-//     ECE4532    Dennis Silage, PhD
-// main.c
-// version 1-27-14
+    This project implements a Hamming linear block code error detection and
+    correction scheme. The message "EE is my avocation" is transmitted
+    between a PC and PIC32 Ethernet sever. Client used for this project
+    is Client3 v16 provided by Professor Dr.Silage. The Client adds up to 10 bits
+    of errors and retransmits back to the server. A (6,3) Hamming linear block code
+    is used with the generator matrix G, parity check matrix H and decode matrix Dc matrix
+    shown below .
 
-//      Starter Board Resources:
-//    LED1 (RED) RD0
-//    LED2 (YELLOW)  RD1
-//    LED3 (GREEN)   RD2
-//    SW1       RD6
-//    SW2       RD7
-//    SW3       RD13
+    G = {{1,0,0,1,1,0},
+         {0,1,0,1,1,1},
+         {0,0,1,1,0,1}}
 
-// Control Messages
-//    02 start of message
-//    03 end of message
+    H = {{1,1,0},
+        {1,1,1},
+        {1,0,1},
+        {1,0,0},
+        {0,1,0},
+        {0,0,1}}
+
+    Dc = {{1,0,0},
+          {0,1,0},
+          {0,0,1},
+          {0,0,0},
+          {0,0,0},
+          {0,0,0}}
+
+*/
 
 
 #include <string.h>
@@ -39,15 +54,13 @@ void DelayMsec(unsigned int);
 
 int main()
 {
-
-            
             int rlen;
             int d;
             int flag;
             int tlen = 42;
             int transfer = 0;
             char rcbfr[42];
-            char rtbfr[42];
+            char rtbfr[18];
             //int tlen1 = 1;
             //int         dly1 = 10000, dly2 = 6000;
             SOCKET        srvr, StreamSock = INVALID_SOCKET;
@@ -58,31 +71,31 @@ int main()
             int addrlen =  sizeof(struct sockaddr_in);
             unsigned int   sys_clk, pb_clk;
 
-// LED setup
+            // LED setup
             mPORTDSetPinsDigitalOut(BIT_0 | BIT_1 | BIT_2 );   // RD0, RD1 and RD2 as outputs
             mPORTDClearBits(BIT_0 | BIT_1 | BIT_2);
-// switch setup
+            // switch setup
             mPORTDSetPinsDigitalIn(BIT_6 | BIT_7 | BIT_13);     // RD6, RD7, RD13 as inputs
 
-// system clock
+            // system clock
             sys_clk=GetSystemClock();
             pb_clk=SYSTEMConfigWaitStatesAndPB(sys_clk);
-// interrupts enabled
+            // interrupts enabled
             INTEnableSystemMultiVectoredInt();
-// system clock enabled
+            // system clock enabled
             SystemTickInit(sys_clk, TICKS_PER_SECOND);
 
-// initialize TCP/IP
+            // initialize TCP/IP
             TCPIPSetDefaultAddr(DEFAULT_IP_ADDR, DEFAULT_IP_MASK, DEFAULT_IP_GATEWAY,
                     DEFAULT_MAC_ADDR);
             if (!TCPIPInit(sys_clk))
                 return -1;
             DHCPInit();
 
-// create TCP server socket
+            // create TCP server socket
             if((srvr = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP )) == SOCKET_ERROR )
                 return -1;
-// bind to a local port
+            // bind to a local port
             addr.sin_port = 6653;
             addr.sin_addr.S_un.S_addr = IP_ADDR_ANY;
             if( bind(srvr, (struct sockaddr*)&addr, addrlen ) == SOCKET_ERROR )
@@ -101,7 +114,7 @@ int main()
                 if(curr_ip.Val != ip.Val)     // DHCP server change IP address?
                 curr_ip.Val = ip.Val;
 
-// TCP Server Code
+                // TCP Server Code
                 if(StreamSock == INVALID_SOCKET)
                     {
                     StreamSock = accept(srvr, (struct sockaddr*)&addr, &addrlen );
@@ -121,7 +134,7 @@ int main()
                     }
                 else
                         {
-// receive TCP data
+                        // receive TCP data
                         rlen = recvfrom(StreamSock, rbfr, sizeof(rbfr), 0, NULL, NULL);
                         if(rlen > 0)
                             {
@@ -200,21 +213,10 @@ int main()
                                                 {
                                                     temp = total_binary[row+gcounter]*G[row][col] + temp;
                                                 }
-                                                codeWord[col] = temp;
+                                                codeWord[col] = temp % 2;
                                             }
                                             gcounter = gcounter + 3;
-                                            int w;
-                                            for (w = 0; w < 6; w++)
-                                            {
-                                                if ((codeWord[w] % 2)  == 0)
-                                                {
-                                                    codeWord[w] = 0;
-                                                }
-                                                if ((codeWord[w] % 2)  == 1)
-                                                {
-                                                    codeWord[w] = 1;
-                                                }
-                                            }
+
                                             int dec = 32*codeWord[0] + 16*codeWord[1] + 8*codeWord[2] + 4*codeWord[3] + 2*codeWord[4] + 1*codeWord[5];
                                             finalCode[fcounter] = dec;
                                             fcounter++;
@@ -223,17 +225,17 @@ int main()
 
                                     d = 0;
                             data:
-                                    tbfr[d]= finalCode[d];        // LSByte;
+                                    tbfr[d]= finalCode[d];
                                     d=d+1;
                                     if (d<(tlen))
                                         goto data;
                                 }
-                                
+                                // load and transmit corrected data
                                 if ((transfer % 2) == 0)
                                 {
                                     d = 0;
                             data1:
-                                    tbfr[d]= rtbfr[d];        // LSByte;
+                                    tbfr[d]= rtbfr[d];
                                     d=d+1;
                                     if (d<(tlen))
                                         goto data1;
@@ -253,99 +255,143 @@ int main()
                                                    {1,0,0},
                                                    {0,1,0},
                                                    {0,0,1}};
+                                    // Decode matrix
+                                    int Dc[6][3] = {{1,0,0},
+                                                   {0,1,0},
+                                                   {0,0,1},
+                                                   {0,0,0},
+                                                   {0,0,0},
+                                                   {0,0,0}};
 
                                     int r;
-                                    int p;
+                                    int p = 0;
                                     int col;
                                     int row;
                                     int temp;
+                                    int count;
                                     // retrieve all the data back from client
                                     for (r = 0; r<42; r++)
                                     {
                                         rcbfr[r] = rbfr[r];
                                     }
 
-                                    for (p = 0; p<42;p++)
+
+                                    for (count=0; count<6;count++)
                                     {
-                                        char c = rcbfr[p];
-                                        int binary_return[6] = {0,0,0,0,0,0};
-                                        int i;
-                                        // convert ASCII to binary
-                                        for (i = 0; i < 6; ++i) {
-                                            binary_return[5-i] = (c >> i) & 1;
-                                        }
-
-                                        int syndrome[3] = {0,0,0};
-                                        for (col = 0; col < 3; col++)
+                                        int decode_binary[21] = {0,0,0,0,0,0,0,
+                                                                 0,0,0,0,0,0,0,
+                                                                 0,0,0,0,0,0,0};
+                                        int dcount = 0;
+                                        int count1;
+                                        int aCount = 0;
+                                        for (count1 = 0; count1 < 7; count1++)
                                         {
-                                            temp = 0;
-                                            for (row = 0; row < 6; row++)
-                                            {
-                                                temp = binary_return[row]*H[row][col] + temp;
+                                            char c = rcbfr[p];
+                                            p++;
+                                            int binary_return[6] = {0,0,0,0,0,0};
+                                            int i;
+                                            // convert ASCII to binary
+                                            for (i = 0; i < 6; ++i) {
+                                                binary_return[5-i] = (c >> i) & 1;
                                             }
-                                            syndrome[col] = temp;
-                                        }
-                                        int w;
-                                        for (w = 0; w < 3; w++)
-                                        {
-                                            if ((syndrome[w] % 2)  == 0)
+
+                                            int syndrome[3] = {0,0,0};
+                                            // get syndrome bits for identifying error bit position
+                                            for (col = 0; col < 3; col++)
                                             {
-                                                syndrome[w] = 0;
+                                                temp = 0;
+                                                for (row = 0; row < 6; row++)
+                                                {
+                                                    temp = binary_return[row]*H[row][col] + temp;
+                                                }
+                                                syndrome[col] = temp % 2;
                                             }
-                                            if ((syndrome[w] % 2)  == 1)
+
+
+                                            int z = 4*syndrome[0] + 2*syndrome[1] + 1*syndrome[2];
+                                            int position;
+                                            if (z == 6)
                                             {
-                                                syndrome[w] = 1;
+                                                position = 0;
                                             }
-                                        }
-
-                                        int z = 4*syndrome[0] + 2*syndrome[1] + 1*syndrome[2];
-                                        int position;
-                                        if (z == 6)
-                                        {
-                                            position = 0;
-                                        }
-                                        if (z == 7)
-                                        {
-                                            position = 1;
-                                        }
-                                        if (z == 5)
-                                        {
-                                            position = 2;
-                                        }
-                                        if (z == 4)
-                                        {
-                                            position = 3;
-                                        }
-                                        if (z == 2)
-                                        {
-                                            position = 4;
-                                        }
-                                        if (z == 1)
-                                        {
-                                            position = 5;
-                                        }
-                                        if (z == 0){
-                                            position = 10;
-                                        }
-
-
-                                        if (position != 10)
-                                        {
-                                            if (binary_return[position] == 1)
+                                            if (z == 7)
                                             {
-                                                binary_return[position] = 0;
+                                                position = 1;
                                             }
-                                            else
+                                            if (z == 5)
                                             {
-                                                binary_return[position] = 1;
+                                                position = 2;
                                             }
+                                            if (z == 4)
+                                            {
+                                                position = 3;
+                                            }
+                                            if (z == 2)
+                                            {
+                                                position = 4;
+                                            }
+                                            if (z == 1)
+                                            {
+                                                position = 5;
+                                            }
+                                            if (z == 0){
+                                                position = 10;
+                                            }
+
+                                            // fix corrupted bit
+                                            if (position != 10)
+                                            {
+                                                if (binary_return[position] == 1)
+                                                {
+                                                    binary_return[position] = 0;
+                                                }
+                                                else
+                                                {
+                                                    binary_return[position] = 1;
+                                                }
+                                            }
+
+                                            int dataBits[3] = {0,0,0};
+                                            // get data bits
+                                            for (col = 0; col < 3; col++)
+                                            {
+                                                temp = 0;
+                                                for (row = 0; row < 6; row++)
+                                                {
+                                                    temp = binary_return[row]*Dc[row][col] + temp;
+                                                }
+                                                dataBits[col] = temp % 2;
+                                            }
+
+                                            int dbits;
+
+                                            for (dbits = 0; dbits < 3; dbits++)
+                                            {
+                                                decode_binary[dcount] = dataBits[dbits];
+                                                dcount++;
+                                            }
+
                                         }
 
-                                        int fdec = 32*binary_return[0]+16*binary_return[1]+
-                                                   8*binary_return[2]+4*binary_return[3]+
-                                                   2*binary_return[4]+1*binary_return[5];
+                                        int asciiData;
+                                        int asciiData1;
+                                        int asciiCount = 0;
+                                        for (asciiData=0;asciiData<3;asciiData++)
+                                        {
+                                           int asciiValue[7] = {0,0,0,0,0,0,0};
+                                           for (asciiData1=0;asciiData1<7;asciiData1++)
+                                            {
+                                                asciiValue[asciiData1] = decode_binary[asciiCount];
+                                                asciiCount++;
+                                            }
 
-                                        rtbfr[p] = fdec;
+                                            int fdec = 0;
+                                            fdec = 64*asciiValue[0]+32*asciiValue[1]+16*asciiValue[2]+
+                                                    8*asciiValue[3]+4*asciiValue[4]+2*asciiValue[5]+ 1*asciiValue[6];
+                                            printf("%d,",fdec);
+                                            rtbfr[aCount] = fdec;
+                                            aCount++;
+                                        }
                                     }
                                     
                                 }
